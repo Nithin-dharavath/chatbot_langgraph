@@ -9,7 +9,7 @@ Then start this UI:
 """
 
 import uuid
-
+from main import retrive_all_threads
 import streamlit as st
 import requests
 
@@ -25,8 +25,8 @@ if "messages" not in st.session_state:
 if "thread_id" not in st.session_state:
     st.session_state["thread_id"] = str(uuid.uuid4())
 
-if "thread_history" not in st.session_state:
-    st.session_state["thread_history"] = []
+if not isinstance(st.session_state.get("thread_history"), list):
+    st.session_state["thread_history"] = retrive_all_threads() or []
 
 if "backend_url" not in st.session_state:
     st.session_state["backend_url"] = "http://localhost:8080"
