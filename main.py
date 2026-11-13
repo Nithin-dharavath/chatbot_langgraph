@@ -1,26 +1,37 @@
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
+
 from langgraph.graph import StateGraph, START, END
-from langchain_groq import ChatGroq
-from langchain_core.messages import HumanMessage
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph.message import add_messages
+from langgraph.prebuilt import tools_condition
+
+from langchain_groq import ChatGroq
+from langchain_core.messages import HumanMessage, AIMessage
+
 from pydantic import BaseModel
 from typing import TypedDict, Annotated, Optional
+
 from dotenv import load_dotenv
-from langgraph.checkpoint.sqlite import SqliteSaver
+
 import os
 import uuid
 import sqlite3
 
+
 load_dotenv()
 
 app = FastAPI()
+
+
+from tools_file import tool_node, llm_with_tools
 
 llm = ChatGroq(
     model="openai/gpt-oss-20b",
     temperature=0.2,
     streaming=True,
 )
+
 
 class WokflowState(TypedDict):
     messages: Annotated[list, add_messages]
@@ -29,15 +40,16 @@ class ChatRequest(BaseModel):
     human_message: str
     thread_id: Optional[str] = None
 
+
 def generate_thread_id():
     return str(uuid.uuid4())
 
 def chatbot_func(state: WokflowState):
-    response = llm.invoke(state["messages"])
+    """Give the answer to human message or use the tools if needed"""
+    response = llm_with_tools.invoke(state["messages"])
     return {
         "messages": [response]
     }
-
 
 def retrive_all_threads():
     all_threads = set()
@@ -48,14 +60,16 @@ def retrive_all_threads():
 
     return list(all_threads)
 
-sqlite_connection = sqlite3.connect(database = "chatbot.db", check_same_thread = False)
 
 graph = StateGraph(WokflowState)
 graph.add_node("chat_bot", chatbot_func)
+graph.add_node("tools", tool_node)
 
 graph.add_edge(START, "chat_bot")
-graph.add_edge("chat_bot", END)
+graph.add_conditional_edges("chat_bot", tools_condition)
+graph.add_edge("tools", "chat_bot")
 
+sqlite_connection = sqlite3.connect(database = "chatbot.db", check_same_thread = False)
 checkpointer = SqliteSaver(conn = sqlite_connection)
 
 workflow = graph.compile(checkpointer=checkpointer)
